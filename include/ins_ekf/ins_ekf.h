@@ -36,7 +36,7 @@ private:
 
     Eigen::Matrix<double, 12, 12> Q_imu_; // IMU noise matrix for propagation
 
-    Eigen::Matrix<double, 5, 1> Q_gps_; // GPS measurement noises
+    Eigen::Matrix<double, 5, 5> Q_gps_; // GPS measurement noises
 
     Eigen::Matrix<double, m_I(MeasurementIndices::NUM_MEASUREMENTS), 1> last_measurements_;
 

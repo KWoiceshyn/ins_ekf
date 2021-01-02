@@ -21,12 +21,12 @@ namespace ins_ekf {
     };
 
     enum class StateIndices {
-        x, // inertial frame position
-        y,
-        z,
         roll, // attitude
         pitch,
         yaw,
+        x, // inertial frame position
+        y,
+        z,
         Vx, // inertial frame velocities
         Vy,
         Vz,

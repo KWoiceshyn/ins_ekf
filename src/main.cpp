@@ -16,8 +16,8 @@ int main(){
     Eigen::Matrix<double, s_I(StateIndices::NUM_STATES), 1> initial_state;
 
     // driving on 100m radius circle starting at (0,0) facing x-direction, at 0.8 m/s
-    initial_state << 0.0, 0.0, 0.0, // xyz position
-            0.0, 0.0, 0.0, // RPY
+    initial_state << 0.0, 0.0, 0.0, // RPY
+            0.0, 0.0, 0.0, // xyz position
             0.8, 0.0, 0.0, // Vxyz
             0.0, 0.0, 0.0,
             0.0, 0.0, 0.0;
@@ -52,6 +52,7 @@ int main(){
 
         test_ekf.ProcessMeasurement(meas, dt);
         test_ekf.Predict(dt);
+        test_ekf.Update();
 
         auto states = test_ekf.GetStates();
         auto cov = test_ekf.GetCovariance();

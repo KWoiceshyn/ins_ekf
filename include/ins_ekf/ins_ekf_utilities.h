@@ -13,7 +13,11 @@ namespace ins_ekf{
 
     Eigen::Vector3d QuatToRPY(const Eigen::Vector4d& quat);
 
+    Eigen::Vector4d QuatMultiply(const Eigen::Vector4d& q, const Eigen::Vector4d& p);
+
     Eigen::Matrix3d SkewSymmetric(const Eigen::Vector3d& vect);
+
+    void Print3by3(const Eigen::Matrix3d& mat);
 
 } // ins_ekf
 
