@@ -11,6 +11,7 @@ namespace ins_ekf{
             imu_offset_{imu_offset},
             imu_orientation_{imu_orientation},
             gps_offset_{gps_offset},
+            Q_gps_{(Eigen::Matrix<double, 5, 1>() << 0.1, 0.1, 0.1, 0.2, 0.03).finished()},
             gravity_{(Eigen::Matrix<double, 3, 1>() << 0.0, 0.0, 9.81).finished()},
             is_stationary_{false}
     {
@@ -30,22 +31,6 @@ namespace ins_ekf{
         P_.block(s_I(SI::Vx), s_I(SI::Vx), 3 , 3) = 0.1 * Eigen::Matrix3d::Identity(); // Vxyz
         P_.block(s_I(SI::biasGp), s_I(SI::biasGp), 3, 3) = 1e-7 * Eigen::Matrix3d::Identity(); // biasGpqr
         P_.block(s_I(SI::biasAx), s_I(SI::biasAx), 3, 3) = 1e-8 * Eigen::Matrix3d::Identity(); // biasAxyz
-
-        // GPS noise values
-        Eigen::Matrix<double, 5, 1> gps_noise;
-        gps_noise << 0.1, 0.1, 0.1, 0.2, 0.03;
-        Q_gps_ = gps_noise.asDiagonal();
-
-        double accel_noise = 1e-3; // m/s^2/hz^0.5
-        double accel_rw = 1e-3; // m/s^2/hz^0.5
-        double gyro_noise = 1.3e-4; // rad/s/hz^0.5
-        double gyro_rw = 1e-4; // rad/s/hz^0.5
-
-        Q_imu_.setZero();
-        Q_imu_.block(m_I(MI::p), m_I(MI::p), 3, 3) = pow(gyro_noise, 2) * Eigen::Matrix3d::Identity();
-        Q_imu_.block(m_I(MI::ax), m_I(MI::ax), 3, 3) = pow(accel_noise, 2) * Eigen::Matrix3d::Identity();
-        Q_imu_.block(m_I(MI::p) + 6, m_I(MI::p) + 6, 3, 3) = pow(gyro_rw, 2) * Eigen::Matrix3d::Identity();
-        Q_imu_.block(m_I(MI::ax) + 6, m_I(MI::ax) + 6, 3, 3) = pow(accel_rw, 2) * Eigen::Matrix3d::Identity();
 
         last_measurements_.setZero();
 
@@ -110,7 +95,7 @@ namespace ins_ekf{
                  ((1.0 - cos(angle))/angle) * SkewSymmetric(rate_vect);
         }
 
-        Eigen::Matrix<double, 15, 15> Phi_k = Eigen::Matrix<double, 15, 15>::Zero();
+        Eigen::Matrix<double, s_I(SI::NUM_STATES), s_I(SI::NUM_STATES)> Phi_k = Eigen::Matrix<double, s_I(SI::NUM_STATES), s_I(SI::NUM_STATES)>::Zero();
         Phi_k.block(s_I(SI::roll), s_I(SI::roll), 3, 3) = R_pert;
         Phi_k.block(s_I(SI::x), s_I(SI::roll), 3, 3) = -0.5 * R_ItoB_hat.transpose() * SkewSymmetric(a_est * dt * dt);
         Phi_k.block(s_I(SI::Vx), s_I(SI::roll), 3, 3) = -R_ItoB_hat.transpose() * SkewSymmetric(a_est * dt);
@@ -128,18 +113,25 @@ namespace ins_ekf{
         Phi_k.block(s_I(SI::biasAx), s_I(SI::biasAx), 3, 3).setIdentity();
 
 
-        Eigen::Matrix<double, 15, 12> Gk = Eigen::Matrix<double, 15, 12>::Zero();
+        Eigen::Matrix<double, s_I(SI::NUM_STATES), 12> Gk = Eigen::Matrix<double, s_I(SI::NUM_STATES), 12>::Zero();
         Gk.block(s_I(SI::roll), m_I(MI::p), 3, 3) = -R_pert * Jr * dt;
         Gk.block(s_I(SI::x), m_I(MI::ax), 3, 3) = -0.5 * R_ItoB_hat.transpose() * dt * dt;
         Gk.block(s_I(SI::Vx), m_I(MI::ax), 3 ,3) = -R_ItoB_hat.transpose() * dt;
         Gk.block(s_I(SI::biasGp), m_I(MI::p) + 6, 3, 3).setIdentity();
         Gk.block(s_I(SI::biasAx), m_I(MI::ax) + 6, 3, 3).setIdentity();
 
-        Eigen::Matrix<double, 12, 12> Qd = Q_imu_;
-        Qd.block(m_I(MI::p), m_I(MI::p), 6, 6) *= (1.0 / dt);
-        Qd.block(m_I(MI::p) + 6, m_I(MI::p) + 6, 6, 6) *= dt;
+        Eigen::Matrix<double, 12, 12> Qd = Eigen::Matrix<double, 12, 12>::Zero();
+        Qd.block(m_I(MI::p), m_I(MI::p), 3, 3) = pow(gyro_noise, 2) * Eigen::Matrix3d::Identity() / dt;
+        Qd.block(m_I(MI::ax), m_I(MI::ax), 3, 3) = pow(accel_noise, 2) * Eigen::Matrix3d::Identity() / dt;
+        Qd.block(m_I(MI::p) + 6, m_I(MI::p) + 6, 3, 3) = pow(gyro_rw, 2) * Eigen::Matrix3d::Identity() * dt;
+        Qd.block(m_I(MI::ax) + 6, m_I(MI::ax) + 6, 3, 3) = pow(accel_rw, 2) * Eigen::Matrix3d::Identity() * dt;
 
         P_ = Phi_k * P_ * Phi_k.transpose() + Gk * Qd * Gk.transpose();
+
+        for(auto i = 0; i < P_.cols(); ++i){
+            if(P_(i, i) < 0.0)
+                std::cout<<"WARNING P is not PSD!\n";
+        }
     }
 
     void InsEkf::Update() {
@@ -150,8 +142,8 @@ namespace ins_ekf{
             std::size_t gps_start = m_I(MI::gpsX);
             Eigen::Matrix<double, 5, 1> h = Eigen::Matrix<double, 5, 1>::Zero();
             h.block(m_I(MI::gpsX) - gps_start, 0, 3, 1) = position_; // TODO : incorporate GPS sensor offset
-            h(m_I(MI::gpsV) - gps_start, 0) = sqrt(pow(velocity_[0], 2) + pow(velocity_[1], 2)); // norm(Vxy)
-            h(m_I(MI::gpsPsi) - gps_start, 0) = atan2(velocity_[1], velocity_[0]);
+            h(m_I(MI::gpsV) - gps_start, 0) = velocity_.segment(0, 2).norm(); // norm(Vxy)
+            h(m_I(MI::gpsPsi) - gps_start, 0) = atan2(velocity_[1], velocity_[0]); // atan2(Vy, Vx)
 
             // measurement model jacobian
             Eigen::Matrix<double, 5, s_I(SI::NUM_STATES)> H = Eigen::Matrix<double, 5, s_I(SI::NUM_STATES)>::Zero();
@@ -161,7 +153,8 @@ namespace ins_ekf{
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vx)) = -velocity_[1] / pow(h(m_I(MI::gpsV) - gps_start, 0), 2); // -Vy / norm(Vxy)^2
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vy)) = velocity_[0] / pow(h(m_I(MI::gpsV) - gps_start, 0), 2); // Vx / norm(Vxy)^2
 
-            Eigen::Matrix<double, 5, 5> S = H * P_ * H.transpose() + Q_gps_;
+            const Eigen::Matrix<double, 5, 5> Q_gps_diag = Q_gps_.asDiagonal();
+            Eigen::Matrix<double, 5, 5> S = H * P_ * H.transpose() + Q_gps_diag;
 
             // Kalman gain = P * H'/ S
             Eigen::Matrix<double, 5, 5> S_inverse;
@@ -180,11 +173,24 @@ namespace ins_ekf{
             bias_g_ += dx.block(s_I(SI::biasGp), 0, 3, 1);
             bias_a_ += dx.block(s_I(SI::biasAx), 0, 3, 1);
 
+            /*
+            std::cout << "Res ";
+            for(auto i = 0; i < residual.size(); ++i)
+                std::cout << residual[i] << " ";
+            std::cout << "\n";
+
+            std::cout << "Dx ";
+            for(auto i = 0; i < dx.size(); ++i)
+                std::cout << dx[i] << " ";
+            std::cout << "\n";
+             */
+
             // update the covariance
             Eigen::Matrix<double, s_I(SI::NUM_STATES), s_I(SI::NUM_STATES)> I_KH =
                     Eigen::Matrix<double, s_I(SI::NUM_STATES), s_I(SI::NUM_STATES)>::Identity() - K * H;
 
-            P_ = I_KH * P_ * I_KH.transpose() + K * Q_gps_ * K.transpose();
+            P_ = I_KH * P_ * I_KH.transpose() + K * Q_gps_diag * K.transpose();
+
 
         }
     }

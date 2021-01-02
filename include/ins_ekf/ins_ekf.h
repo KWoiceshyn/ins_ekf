@@ -34,9 +34,12 @@ private:
 
     Eigen::Matrix<double, s_I(StateIndices ::NUM_STATES), s_I(StateIndices::NUM_STATES)> P_; // state covariance
 
-    Eigen::Matrix<double, 12, 12> Q_imu_; // IMU noise matrix for propagation
+    const double accel_noise = 1e-3; // m/s^2/hz^0.5
+    const double accel_rw = 1e-3; // m/s^2/hz^0.5
+    const double gyro_noise = 1.3e-4; // rad/s/hz^0.5
+    const double gyro_rw = 1e-4; // rad/s/hz^0.5
 
-    Eigen::Matrix<double, 5, 5> Q_gps_; // GPS measurement noises
+    const Eigen::Matrix<double, 5, 1> Q_gps_; // GPS measurement noises
 
     Eigen::Matrix<double, m_I(MeasurementIndices::NUM_MEASUREMENTS), 1> last_measurements_;
 
