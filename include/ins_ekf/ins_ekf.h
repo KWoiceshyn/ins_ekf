@@ -11,7 +11,7 @@ class InsEkf{
 
 public:
     InsEkf(const Eigen::Vector3d& imu_offset, const Eigen::Vector4d& imu_orientation, const Eigen::Vector3d& gps_offset,
-           Eigen::VectorXd initial_state);
+           Eigen::VectorXd initial_state, double gps_rate);
 
     void ProcessMeasurement(const std::vector<double>& measurement, double dt);
 
@@ -38,6 +38,7 @@ private:
     const double accel_rw = 1e-3; // m/s^2/hz^0.5
     const double gyro_noise = 1.3e-4; // rad/s/hz^0.5
     const double gyro_rw = 1e-4; // rad/s/hz^0.5
+    const double gps_update_rate_; // sec
 
     const Eigen::Matrix<double, 5, 1> Q_gps_; // GPS measurement noises
 

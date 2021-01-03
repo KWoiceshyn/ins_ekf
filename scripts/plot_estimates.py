@@ -8,8 +8,10 @@ def main():
 
     states_file = open("../states_out.csv", "rb")
     cov_file = open("../cov_out.csv", "rb")
+    meas_file = open("../RollCircleMeasurements.csv")
     states_array = np.loadtxt(states_file, delimiter=",")
     cov_array = np.loadtxt(cov_file, delimiter=",")
+    meas_array = np.loadtxt(meas_file, delimiter=",")
 
     r2d = 180 / np.pi
     t = states_array[:,0]
@@ -34,11 +36,39 @@ def main():
     Vz = states_array[:,9]
     Vz_cov = cov_array[:,9]
 
+    bGp = r2d * states_array[:,10]
+    bGp_cov = r2d * cov_array[:,10]
+    bGq = r2d * states_array[:,11]
+    bGq_cov = r2d * cov_array[:,11]
+    bGr = r2d * states_array[:,12]
+    bGr_cov = r2d * cov_array[:,12]
+
+    bAx = states_array[:,13]
+    bAx_cov = cov_array[:,13]
+    bAy = states_array[:,14]
+    bAy_cov = cov_array[:,14]
+    bAz = states_array[:,15]
+    bAz_cov = cov_array[:,15]
+
     Vb_normsq = Vx * Vx + Vy * Vy + Vz * Vz
     Vb = np.sqrt(Vb_normsq)
 
+    p_meas = r2d * meas_array[:,0]
+    q_meas = r2d * meas_array[:,1]
+    r_meas = r2d * meas_array[:,2]
+    ax_meas = meas_array[:,3]
+    ay_meas = meas_array[:,4]
+    az_meas = meas_array[:,5]
+
+    x_meas = meas_array[:,6]
+    y_meas = meas_array[:,7]
+    z_meas = meas_array[:,8]
+    v_meas = meas_array[:,9]
+    yaw_meas = r2d * meas_array[:,10]
+
     plt.figure(1)
     plt.plot(x, y, c='r', label='path')
+    plt.plot(x_meas, y_meas, c='g', label='gps')
     plt.xlabel('x')
     plt.ylabel('y')
     plt.title('2D Path')
@@ -47,6 +77,7 @@ def main():
 
     plt.figure(2)
     plt.plot(t, Vb, c='r', label='velocity')
+    plt.plot(t, v_meas, c='g', label='gps')
     plt.xlabel('sec')
     plt.ylabel('m/s')
     plt.title('Body Velocity')
@@ -57,16 +88,19 @@ def main():
     ax[0].plot(t, x, c='r', label='x_position')
     ax[0].plot(t, x + x_cov, c='r', ls='--', lw=0.5)
     ax[0].plot(t, x - x_cov, c='r', ls='--', lw=0.5)
+    ax[0].plot(t, x_meas, c='g', label='gps')
     ax[0].set_ylabel('m')
     ax[0].legend()
     ax[1].plot(t, y, c='r', label='y_position')
     ax[1].plot(t, y + y_cov, c='r', ls='--', lw=0.5)
     ax[1].plot(t, y - y_cov, c='r', ls='--', lw=0.5)
+    ax[1].plot(t, y_meas, c='g', label='gps')
     ax[1].set_ylabel('m')
     ax[1].legend()
     ax[2].plot(t, z, c='r', label='z_position')
     ax[2].plot(t, z + z_cov, c='r', ls='--', lw=0.5)
     ax[2].plot(t, z - z_cov, c='r', ls='--', lw=0.5)
+    ax[2].plot(t, z_meas, c='g', label='gps')
     ax[2].set_ylabel('m')
     ax[2].legend()
     ax[2].set_xlabel('sec')
@@ -86,6 +120,7 @@ def main():
     ax2[2].plot(t, yaw, c='r', label='yaw')
     ax2[2].plot(t, yaw + yaw_cov, c='r', ls='--', lw=0.5)
     ax2[2].plot(t, yaw - yaw_cov, c='r', ls='--', lw=0.5)
+    ax2[2].plot(t, yaw_meas, c='g', label='gps')
     ax2[2].set_ylabel('deg')
     ax2[2].legend()
     ax2[2].set_xlabel('sec')
@@ -108,6 +143,73 @@ def main():
     ax3[2].set_ylabel('m/s')
     ax3[2].legend()
     ax3[2].set_xlabel('sec')
+
+    fig6, ax4 = plt.subplots(3)
+    fig6.suptitle("biasPQR")
+    ax4[0].plot(t, bGp, c='r', label='bP')
+    ax4[0].plot(t, bGp + bGp_cov, c='r', ls='--', lw=0.5)
+    ax4[0].plot(t, bGp - bGp_cov, c='r', ls='--', lw=0.5)
+    ax4[0].set_ylabel('deg/s')
+    ax4[0].legend()
+    ax4[1].plot(t, bGq, c='r', label='bQ')
+    ax4[1].plot(t, bGq + bGq_cov, c='r', ls='--', lw=0.5)
+    ax4[1].plot(t, bGq - bGq_cov, c='r', ls='--', lw=0.5)
+    ax4[1].set_ylabel('deg/s')
+    ax4[1].legend()
+    ax4[2].plot(t, bGr, c='r', label='bR')
+    ax4[2].plot(t, bGr + bGr_cov, c='r', ls='--', lw=0.5)
+    ax4[2].plot(t, bGr - bGr_cov, c='r', ls='--', lw=0.5)
+    ax4[2].set_ylabel('deg/s')
+    ax4[2].legend()
+    ax4[2].set_xlabel('sec')
+
+    fig7, ax5 = plt.subplots(3)
+    fig7.suptitle("biasAxyz")
+    ax5[0].plot(t, bAx, c='r', label='bAx')
+    ax5[0].plot(t, bAx + bAx_cov, c='r', ls='--', lw=0.5)
+    ax5[0].plot(t, bAx - bAx_cov, c='r', ls='--', lw=0.5)
+    #ax5[0].plot(t, ax_meas, c='g', label='Ax')
+    ax5[0].set_ylabel('m/s/s')
+    ax5[0].legend()
+    ax5[1].plot(t, bAy, c='r', label='bAy')
+    ax5[1].plot(t, bAy + bAy_cov, c='r', ls='--', lw=0.5)
+    ax5[1].plot(t, bAy - bAy_cov, c='r', ls='--', lw=0.5)
+    #ax5[1].plot(t, ay_meas, c='g', label='Az')
+    ax5[1].set_ylabel('m/s/s')
+    ax5[1].legend()
+    ax5[2].plot(t, bAz, c='r', label='bAz')
+    ax5[2].plot(t, bAz + bAz_cov, c='r', ls='--', lw=0.5)
+    ax5[2].plot(t, bAz - bAz_cov, c='r', ls='--', lw=0.5)
+    #ax5[2].plot(t, az_meas, c='g', label='Az')
+    ax5[2].set_ylabel('m/s/s')
+    ax5[2].legend()
+    ax5[2].set_xlabel('sec')
+
+    fig8, ax6 = plt.subplots(3)
+    fig8.suptitle("measPQR")
+    ax6[0].plot(t, p_meas, c='g', label='p')
+    ax6[0].set_ylabel('deg/s')
+    ax6[0].legend()
+    ax6[1].plot(t, q_meas, c='g', label='q')
+    ax6[1].set_ylabel('deg/s')
+    ax6[1].legend()
+    ax6[2].plot(t, r_meas, c='g', label='r')
+    ax6[2].set_ylabel('deg/s')
+    ax6[2].legend()
+    ax6[2].set_xlabel('sec')
+
+    fig9, ax7 = plt.subplots(3)
+    fig9.suptitle("measAxyz")
+    ax7[0].plot(t, ax_meas, c='g', label='Ax')
+    ax7[0].set_ylabel('m/s/s')
+    ax7[0].legend()
+    ax7[1].plot(t, ay_meas, c='g', label='Ay')
+    ax7[1].set_ylabel('m/s/s')
+    ax7[1].legend()
+    ax7[2].plot(t, az_meas, c='g', label='Az')
+    ax7[2].set_ylabel('m/s/s')
+    ax7[2].legend()
+    ax7[2].set_xlabel('sec')
 
     plt.show()
 

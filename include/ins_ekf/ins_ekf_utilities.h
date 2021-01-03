@@ -17,6 +17,8 @@ namespace ins_ekf{
 
     Eigen::Matrix3d SkewSymmetric(const Eigen::Vector3d& vect);
 
+    Eigen::Vector3d RotateVectByQuat(const Eigen::Vector4d& q, const Eigen::Vector3d& v);
+
     void Print3by3(const Eigen::Matrix3d& mat);
 
 } // ins_ekf

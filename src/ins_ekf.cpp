@@ -7,10 +7,11 @@ namespace ins_ekf{
     using MI = MeasurementIndices;
     using SI = StateIndices;
 
-    InsEkf::InsEkf(const Eigen::Vector3d& imu_offset, const Eigen::Vector4d& imu_orientation, const Eigen::Vector3d& gps_offset, Eigen::VectorXd initial_state):
+    InsEkf::InsEkf(const Eigen::Vector3d& imu_offset, const Eigen::Vector4d& imu_orientation, const Eigen::Vector3d& gps_offset, Eigen::VectorXd initial_state, double gps_rate):
             imu_offset_{imu_offset},
             imu_orientation_{imu_orientation},
             gps_offset_{gps_offset},
+            gps_update_rate_{gps_rate},
             Q_gps_{(Eigen::Matrix<double, 5, 1>() << 0.1, 0.1, 0.1, 0.2, 0.03).finished()},
             gravity_{(Eigen::Matrix<double, 3, 1>() << 0.0, 0.0, 9.81).finished()},
             is_stationary_{false}
@@ -41,10 +42,20 @@ namespace ins_ekf{
         static double t_since_last_gps = 0.0;
         assert(measurement.size() == m_I(MI::NUM_MEASUREMENTS));
 
-        const Eigen::VectorXd imu_meas = Eigen::Map<const Eigen::VectorXd>(measurement.data(), 6);
-        last_measurements_.segment(m_I(MI::p), 6) = imu_meas;
+        Eigen::Vector3d pqr_meas, axyz_meas;
+        pqr_meas << measurement[m_I(MI::p)], measurement[m_I(MI::q)], measurement[m_I(MI::r)];
+        axyz_meas << measurement[m_I(MI::ax)], measurement[m_I(MI::ay)], measurement[m_I(MI::az)];
 
-        if(t_since_last_gps >= 0.1){
+        // transform measurements from sensor frame to vehicle body frame
+        pqr_meas = RotateVectByQuat(imu_orientation_, pqr_meas);
+        axyz_meas = RotateVectByQuat(imu_orientation_, axyz_meas);
+
+        axyz_meas -= SkewSymmetric(pqr_meas) * SkewSymmetric(pqr_meas) * imu_offset_; // effect of rotating at offset from vehicle center
+
+        last_measurements_.segment(m_I(MI::p), 3) = pqr_meas;
+        last_measurements_.segment(m_I(MI::ax), 3) = axyz_meas;
+
+        if(t_since_last_gps >= gps_update_rate_){
             const Eigen::VectorXd gps_meas = Eigen::Map<const Eigen::VectorXd>(measurement.data() + 6, 5);
             last_measurements_.segment(m_I(MI::gpsX), 5) = gps_meas;
             t_since_last_gps = 0;
@@ -144,18 +155,51 @@ namespace ins_ekf{
             // measurement model
             std::size_t gps_start = m_I(MI::gpsX);
             Eigen::Matrix<double, 5, 1> h = Eigen::Matrix<double, 5, 1>::Zero();
-            h.block(m_I(MI::gpsX) - gps_start, 0, 3, 1) = position_; // TODO : incorporate GPS sensor offset
-            h(m_I(MI::gpsV) - gps_start, 0) = velocity_.segment(0, 2).norm(); // norm(Vxy)
-            h(m_I(MI::gpsPsi) - gps_start, 0) = atan2(velocity_[1], velocity_[0]); // atan2(Vy, Vx)
+
+            Eigen::Vector4d q_BtoI;
+            q_BtoI << -orientation_[0], -orientation_[1], -orientation_[2], orientation_[3];
+            Eigen::Vector3d gps_offset_I = RotateVectByQuat(q_BtoI, gps_offset_);
+            h.block(m_I(MI::gpsX) - gps_start, 0, 3, 1) = position_ + gps_offset_I;
+
+            Eigen::Vector3d pqr_meas = last_measurements_.segment(m_I(MI::p), 3);
+            Eigen::Vector3d gps_rot_offset = SkewSymmetric(pqr_meas) * gps_offset_;
+            Eigen::Vector3d gps_rot_offset_I = RotateVectByQuat(q_BtoI, gps_rot_offset);
+            Eigen::Vector3d gps_velocity_I = velocity_ + gps_rot_offset_I; // effect of rotating at offset from vehicle center
+
+            double Vxy_norm = gps_velocity_I.segment(0, 2).norm();
+            h(m_I(MI::gpsV) - gps_start, 0) = Vxy_norm;
+            h(m_I(MI::gpsPsi) - gps_start, 0) = atan2(gps_velocity_I[1], gps_velocity_I[0]); // atan2(Vy, Vx)
 
             // measurement model jacobian
             Eigen::Matrix<double, 5, s_I(SI::NUM_STATES)> H = Eigen::Matrix<double, 5, s_I(SI::NUM_STATES)>::Zero();
-            H.block(0, s_I(SI::x), 3, 3) = Eigen::Matrix3d::Identity(); // TODO : incorporate GPS sensor offset
-            H(m_I(MI::gpsV) - gps_start, s_I(SI::Vx)) = velocity_[0] / h(m_I(MI::gpsV) - gps_start, 0); // Vx / norm(Vxy)
-            H(m_I(MI::gpsV) - gps_start, s_I(SI::Vy)) = velocity_[1] / h(m_I(MI::gpsV) - gps_start, 0); // Vy / norm(Vxy)
-            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vx)) = -velocity_[1] / pow(h(m_I(MI::gpsV) - gps_start, 0), 2); // -Vy / norm(Vxy)^2
-            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vy)) = velocity_[0] / pow(h(m_I(MI::gpsV) - gps_start, 0), 2); // Vx / norm(Vxy)^2
+            H.block(m_I(MI::gpsX) - gps_start, s_I(SI::x), 3, 3) = Eigen::Matrix3d::Identity(); // TODO : incorporate GPS sensor offset
 
+            Eigen::Matrix3d I_3 = Eigen::Matrix3d::Identity();
+            Eigen::Matrix3d R_yaw = RPYToRotMat(Eigen::Vector3d{0.0, 0.0, -orientation_[2]});
+            Eigen::Matrix3d R_pitch = RPYToRotMat(Eigen::Vector3d{0.0, -orientation_[1], 0.0});
+            H.block(m_I(MI::gpsX) - gps_start, s_I(SI::roll), 3, 1) = -SkewSymmetric(gps_offset_I) * R_yaw * R_pitch * I_3.col(0); // d gps_offset_I / d roll
+            H.block(m_I(MI::gpsX) - gps_start, s_I(SI::pitch), 3, 1) = -SkewSymmetric(gps_offset_I) * R_yaw * I_3.col(1); // d gps_offset_I / d pitch
+            H.block(m_I(MI::gpsX) - gps_start, s_I(SI::yaw), 3, 1) = -SkewSymmetric(gps_offset_I) * I_3.col(2); // d gps_offset_I / d yaw
+
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::Vx)) = gps_velocity_I[0] / Vxy_norm; // Vx / norm(Vxy)
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::Vy)) = gps_velocity_I[1] / Vxy_norm; // Vy / norm(Vxy)
+
+            Eigen::Vector3d d_gps_roI_d_roll = -SkewSymmetric(gps_rot_offset_I) * R_yaw * R_pitch * I_3.col(0); // d gps_rot_offset_I / d roll
+            Eigen::Vector3d d_gps_roI_d_pitch = -SkewSymmetric(gps_rot_offset_I) * R_yaw * I_3.col(1); // d gps_rot_offset_I / d pitch
+            Eigen::Vector3d d_gps_roI_d_yaw = -SkewSymmetric(gps_rot_offset_I) * I_3.col(2); // d gps_rot_offset_I / d yaw
+
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::roll)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_roll.segment(0, 2)) / Vxy_norm;
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::pitch)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_pitch.segment(0, 2)) / Vxy_norm;
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::yaw)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_yaw.segment(0, 2)) / Vxy_norm;
+
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vx)) = -gps_velocity_I[1] / pow(Vxy_norm, 2); // -Vy / norm(Vxy)^2
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vy)) = gps_velocity_I[0] / pow(Vxy_norm, 2); // Vx / norm(Vxy)^2
+
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::roll)) = (gps_velocity_I[0] * d_gps_roI_d_roll[1] - gps_velocity_I[1] * d_gps_roI_d_roll[0]) / pow(Vxy_norm, 2); // (Vx*dVy/droll - Vy*dVx/droll) / norm^2
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::roll)) = (gps_velocity_I[0] * d_gps_roI_d_pitch[1] - gps_velocity_I[1] * d_gps_roI_d_pitch[0]) / pow(Vxy_norm, 2);
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::roll)) = (gps_velocity_I[0] * d_gps_roI_d_yaw[1] - gps_velocity_I[1] * d_gps_roI_d_yaw[0]) / pow(Vxy_norm, 2);
+
+            // EKF update
             const Eigen::Matrix<double, 5, 5> Q_gps_diag = Q_gps_.asDiagonal();
             Eigen::Matrix<double, 5, 5> S = H * P_ * H.transpose() + Q_gps_diag;
 
@@ -171,6 +215,7 @@ namespace ins_ekf{
             Eigen::Vector4d dq {0.5 * dx[s_I(SI::roll)], 0.5 * dx[s_I(SI::pitch)], 0.5 * dx[s_I(SI::yaw)], 1.0}; // small angle approximation
             dq /= dq.norm();
             orientation_ = QuatMultiply(dq, orientation_);
+            orientation_ /= orientation_.norm();
             position_ += dx.block(s_I(SI::x), 0, 3, 1);
             velocity_ += dx.block(s_I(SI::Vx), 0, 3, 1);
             bias_g_ += dx.block(s_I(SI::biasGp), 0, 3, 1);

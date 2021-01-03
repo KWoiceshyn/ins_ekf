@@ -73,8 +73,6 @@ namespace ins_ekf{
         quat[2] = q[1]*p[0] - q[0]*p[1] + q[3]*p[2] + q[2]*p[3];
         quat[3] = -q[0]*p[0] - q[1]*p[1] - q[2]*p[2] + q[3]*p[3];
 
-        quat /= quat.norm();
-
         return quat;
     }
 
@@ -85,6 +83,20 @@ namespace ins_ekf{
                 vect[2], 0, -vect[0],
                 -vect[1], vect[0], 0;
         return ss;
+    }
+
+    Eigen::Vector3d RotateVectByQuat(const Eigen::Vector4d& q, const Eigen::Vector3d& v){
+
+        if(v.norm() < 1e-10)
+            return v;
+
+        Eigen::Vector4d q_inv, v_quat;
+        q_inv << -q[0], -q[1], -q[2], q[3];
+        v_quat << v[0], v[1], v[2], 0.0;
+
+        Eigen::Vector4d result = QuatMultiply(v_quat, q_inv);
+        result = QuatMultiply(q, result);
+        return result.segment(0, 3);
     }
 
     void Print3by3(const Eigen::Matrix3d& mat){
