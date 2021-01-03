@@ -74,8 +74,8 @@ namespace ins_ekf{
         orientation_ = theta * orientation_;
 
         Eigen::Matrix3d R_ItoB_hat = RPYToRotMat(QuatToRPY(orientation_));
-        velocity_ = velocity_ - dt * gravity_ + R_ItoB_hat.transpose() * (last_measurements_.segment(m_I(MI::ax), 3) - bias_a_) * dt;
-        position_ = position_ + dt * velocity_ - 0.5 * gravity_ * dt * dt + 0.5 * R_ItoB_hat.transpose() * (last_measurements_.segment(m_I(MI::ax), 3) - bias_a_) * dt * dt;
+        velocity_ = velocity_ - dt * gravity_ + R_ItoB_hat.transpose() * a_est * dt;
+        position_ = position_ + dt * velocity_ - 0.5 * gravity_ * dt * dt + 0.5 * R_ItoB_hat.transpose() * a_est * dt * dt;
 
         // propagate covariance
         double angle = angle_rate * dt; // TODO : this may need to be negative?
@@ -88,10 +88,10 @@ namespace ins_ekf{
         if(angle > 1e-10){
             Eigen::Vector3d rate_vect = w_est / angle_rate;
 
-            R_pert = cos(angle) * Eigen::Matrix3d::Identity() + (1.0 - cos(angle)) * rate_vect * rate_vect.transpose() +
+            R_pert = cos(angle) * Eigen::Matrix3d::Identity() + (1.0 - cos(angle)) * (rate_vect * rate_vect.transpose()) +
                                      sin(angle) * SkewSymmetric(rate_vect);
 
-            Jr = (sin(angle) / angle) * Eigen::Matrix3d::Identity() + (1.0 - sin(angle) / angle) * rate_vect * rate_vect.transpose() -
+            Jr = (sin(angle) / angle) * Eigen::Matrix3d::Identity() + (1.0 - sin(angle) / angle) * (rate_vect * rate_vect.transpose()) -
                  ((1.0 - cos(angle))/angle) * SkewSymmetric(rate_vect);
         }
 
@@ -126,7 +126,10 @@ namespace ins_ekf{
         Qd.block(m_I(MI::p) + 6, m_I(MI::p) + 6, 3, 3) = pow(gyro_rw, 2) * Eigen::Matrix3d::Identity() * dt;
         Qd.block(m_I(MI::ax) + 6, m_I(MI::ax) + 6, 3, 3) = pow(accel_rw, 2) * Eigen::Matrix3d::Identity() * dt;
 
-        P_ = Phi_k * P_ * Phi_k.transpose() + Gk * Qd * Gk.transpose();
+        Eigen::Matrix<double, 15, 15> GQG = Gk * Qd * Gk.transpose();
+        GQG = 0.5 * (GQG + GQG.transpose());
+
+        P_ = Phi_k * P_ * Phi_k.transpose() + GQG;
 
         for(auto i = 0; i < P_.cols(); ++i){
             if(P_(i, i) < 0.0)
@@ -157,7 +160,7 @@ namespace ins_ekf{
             Eigen::Matrix<double, 5, 5> S = H * P_ * H.transpose() + Q_gps_diag;
 
             // Kalman gain = P * H'/ S
-            Eigen::Matrix<double, 5, 5> S_inverse;
+            Eigen::Matrix<double, 5, 5> S_inverse = Eigen::Matrix<double, 5, 5>::Identity();
             S.selfadjointView<Eigen::Upper>().llt().solveInPlace(S_inverse);
             Eigen::Matrix<double, s_I(SI::NUM_STATES), 5> K = P_ * H.transpose() * S_inverse;
 
@@ -173,24 +176,13 @@ namespace ins_ekf{
             bias_g_ += dx.block(s_I(SI::biasGp), 0, 3, 1);
             bias_a_ += dx.block(s_I(SI::biasAx), 0, 3, 1);
 
-            /*
-            std::cout << "Res ";
-            for(auto i = 0; i < residual.size(); ++i)
-                std::cout << residual[i] << " ";
-            std::cout << "\n";
-
-            std::cout << "Dx ";
-            for(auto i = 0; i < dx.size(); ++i)
-                std::cout << dx[i] << " ";
-            std::cout << "\n";
-             */
-
             // update the covariance
             Eigen::Matrix<double, s_I(SI::NUM_STATES), s_I(SI::NUM_STATES)> I_KH =
                     Eigen::Matrix<double, s_I(SI::NUM_STATES), s_I(SI::NUM_STATES)>::Identity() - K * H;
 
             P_ = I_KH * P_ * I_KH.transpose() + K * Q_gps_diag * K.transpose();
-
+            P_ = 0.5 * (P_ + P_.transpose());
+            //P_ -= K * H * P_;
 
         }
     }
