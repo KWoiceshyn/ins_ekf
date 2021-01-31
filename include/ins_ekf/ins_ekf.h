@@ -1,9 +1,10 @@
 #ifndef INSEKF_INSEKF_H
 #define INSEKF_INSEKF_H
 
-#include "ins_ekf_types.h"
-#include "ins_ekf_utilities.h"
+#include "ins_ekf/ins_ekf_types.h"
+#include "ins_ekf/ins_ekf_utilities.h"
 
+#include <vector>
 
 namespace ins_ekf{
 
@@ -44,7 +45,7 @@ private:
 
     Eigen::Matrix<double, m_I(MeasurementIndices::NUM_MEASUREMENTS), 1> last_measurements_;
 
-    const Eigen::Matrix<double, 3, 1> gravity_;
+    const Eigen::Matrix<double, 3, 1> gravity_; // {0, 0, 9.81}
 
     bool is_stationary_;
 

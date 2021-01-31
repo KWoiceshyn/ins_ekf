@@ -1,7 +1,7 @@
 #ifndef INSEKF_INSEKFTYPES_H
 #define INSEKF_INSEKFTYPES_H
 
-#include <vector>
+#include <cstddef>
 
 namespace ins_ekf {
 

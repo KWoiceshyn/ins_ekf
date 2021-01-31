@@ -1,4 +1,4 @@
-#include "../include/ins_ekf/ins_ekf_utilities.h"
+#include "ins_ekf/ins_ekf_utilities.h"
 
 namespace ins_ekf{
 
