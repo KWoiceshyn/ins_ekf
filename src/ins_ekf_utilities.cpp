@@ -2,7 +2,7 @@
 
 namespace ins_ekf{
 
-    Eigen::Vector4d RPYToQuat(const Eigen::Vector3d& rpy){ // https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+    Eigen::Vector4d RPYToQuat(const Eigen::Vector3d& rpy){
 
         Eigen::Vector4d quat;
         double cr_2   = cos(rpy[0] / 2);
@@ -39,7 +39,7 @@ namespace ins_ekf{
         return rot_I_to_B;
     }
 
-    Eigen::Vector3d QuatToRPY(const Eigen::Vector4d& quat){ // https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+    Eigen::Vector3d QuatToRPY(const Eigen::Vector4d& quat){
 
         // roll (body x axis)
         double sr_cp = 2.0 * (quat[3] * quat[0] + quat[1] * quat[2]);

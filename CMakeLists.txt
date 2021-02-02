@@ -2,7 +2,12 @@ cmake_minimum_required (VERSION 3.11)
 set(CMAKE_CXX_STANDARD 14)
 project(ins_ekf)
 
-add_library(ins_ekf src/ins_ekf.cpp)
+set(SOURCES
+        src/ins_ekf_utilities.cpp
+        src/ins_ekf.cpp
+        )
+
+add_library(ins_ekf ${SOURCES})
 target_include_directories(ins_ekf PUBLIC include)
 
 add_executable(main src/main.cpp)

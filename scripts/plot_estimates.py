@@ -1,14 +1,15 @@
 #! usr/bin/env python3
 
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 
-def main():
 
-    states_file = open("../states_out.csv", "rb")
-    cov_file = open("../cov_out.csv", "rb")
-    meas_file = open("../RollCircleMeasurements.csv")
+def plot_data(states_filename, cov_filename, meas_filename):
+
+    states_file = open(states_filename, "rb")
+    cov_file = open(cov_filename, "rb")
+    meas_file = open(meas_filename)
     states_array = np.loadtxt(states_file, delimiter=",")
     cov_array = np.loadtxt(cov_file, delimiter=",")
     meas_array = np.loadtxt(meas_file, delimiter=",")
@@ -51,7 +52,7 @@ def main():
     bAz_cov = cov_array[:,15]
 
     Vb_normsq = Vx * Vx + Vy * Vy + Vz * Vz
-    Vb = np.sqrt(Vb_normsq)
+    Vb = np.sqrt(Vb_normsq) # body velocity is norm of inertial frame velocity
 
     p_meas = r2d * meas_array[:,0]
     q_meas = r2d * meas_array[:,1]
@@ -213,6 +214,14 @@ def main():
 
     plt.show()
 
+def main():
+    parser = argparse.ArgumentParser(description='Load files for plotting')
+    parser.add_argument('-s', '--states_file', type=str, help='.csv file with EKF state estimates')
+    parser.add_argument('-c', '--cov_file', type=str, help='.csv file with EKF state covariances')
+    parser.add_argument('-m', '--meas_file', type=str, help='.csv file with measurement inputs to EKF')
+    args = parser.parse_args()
+
+    plot_data(args.states_file, args.cov_file, args.meas_file)
 
 if __name__ == "__main__":
     main()
