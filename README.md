@@ -16,8 +16,8 @@ The IMU measurements are used in the prediction step. The GPS measurements are u
 The input is a .txt or .csv file with measurement values, in the following columns:
 | roll_rate | pitch_rate | yaw_rate | accel_x | accel_y | accel_z | x_pos | y_pos | z_pos | velocity | heading |
 | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- |
-\
-\
+
+
 The first 6 measurements are from the IMU, and the last 5 are from the GPS.
 
 For exampe, to run the EKF with a .csv file as input:
