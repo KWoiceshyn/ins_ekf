@@ -49,9 +49,6 @@ namespace ins_ekf{
         pqr_meas = RotateVectByQuat(imu_orientation_, pqr_meas);
         axyz_meas = RotateVectByQuat(imu_orientation_, axyz_meas);
 
-        // subtract the effect of rotating at offset from vehicle center
-        axyz_meas -= SkewSymmetric(pqr_meas) * SkewSymmetric(pqr_meas) * imu_offset_;
-
         last_measurements_.segment(m_I(MI::p), 3) = pqr_meas;
         last_measurements_.segment(m_I(MI::ax), 3) = axyz_meas;
 
@@ -70,6 +67,10 @@ namespace ins_ekf{
 
         Eigen::Vector3d w_est = last_measurements_.segment(m_I(MI::p), 3) - bias_g_;
         Eigen::Vector3d a_est = last_measurements_.segment(m_I(MI::ax), 3) - bias_a_;
+
+        // subtract the effect of rotating at offset from vehicle center
+        a_est -= SkewSymmetric(w_est) * SkewSymmetric(w_est) * imu_offset_;
+
         Eigen::Matrix3d w_ss = SkewSymmetric(w_est);
         Eigen::Matrix4d omega = Eigen::Matrix4d::Zero();
         omega.block(0, 0, 3, 3) = -w_ss;
@@ -122,6 +123,15 @@ namespace ins_ekf{
         Phi_k.block(s_I(SI::Vx), s_I(SI::Vx), 3, 3).setIdentity();
 
         Phi_k.block(s_I(SI::roll), s_I(SI::biasGp), 3, 3) = -R_pert * Jr * dt;
+        Eigen::Matrix3d d_w_skew_d_biasGp = SkewSymmetric(Eigen::Vector3d{-1.0, 0.0, 0.0});
+        Phi_k.block(s_I(SI::x), s_I(SI::biasGp), 3, 1) = -0.5 * R_ItoB_hat.transpose() * (w_ss*d_w_skew_d_biasGp + d_w_skew_d_biasGp*w_ss) * imu_offset_ * dt * dt;
+        Phi_k.block(s_I(SI::Vx), s_I(SI::biasGp), 3, 1) = -R_ItoB_hat.transpose() * (w_ss*d_w_skew_d_biasGp + d_w_skew_d_biasGp*w_ss) * imu_offset_ * dt;
+        Eigen::Matrix3d d_w_skew_d_biasGq = SkewSymmetric(Eigen::Vector3d{0.0, -1.0, 0.0});
+        Phi_k.block(s_I(SI::x), s_I(SI::biasGq), 3, 1) = -0.5 * R_ItoB_hat.transpose() * (w_ss*d_w_skew_d_biasGq + d_w_skew_d_biasGq*w_ss) * imu_offset_ * dt * dt;
+        Phi_k.block(s_I(SI::Vx), s_I(SI::biasGq), 3, 1) = -R_ItoB_hat.transpose() * (w_ss*d_w_skew_d_biasGq + d_w_skew_d_biasGq*w_ss) * imu_offset_ * dt;
+        Eigen::Matrix3d d_w_skew_d_biasGr = SkewSymmetric(Eigen::Vector3d{0.0, 0.0, -1.0});
+        Phi_k.block(s_I(SI::x), s_I(SI::biasGr), 3, 1) = -0.5 * R_ItoB_hat.transpose() * (w_ss*d_w_skew_d_biasGr + d_w_skew_d_biasGr*w_ss) * imu_offset_ * dt * dt;
+        Phi_k.block(s_I(SI::Vx), s_I(SI::biasGr), 3, 1) = -R_ItoB_hat.transpose() * (w_ss*d_w_skew_d_biasGr + d_w_skew_d_biasGr*w_ss) * imu_offset_ * dt;
         Phi_k.block(s_I(SI::biasGp), s_I(SI::biasGp), 3, 3).setIdentity();
 
         Phi_k.block(s_I(SI::x), s_I(SI::biasAx), 3, 3) = -0.5 * R_ItoB_hat.transpose() * dt * dt;
@@ -169,9 +179,9 @@ namespace ins_ekf{
             // expected GPS position measurement based on vehicle position
             h.block(m_I(MI::gpsX) - gps_start, 0, 3, 1) = position_ + gps_offset_I;
 
-            Eigen::Vector3d pqr_meas = last_measurements_.segment(m_I(MI::p), 3);
+            Eigen::Vector3d pqr_est = last_measurements_.segment(m_I(MI::p), 3) - bias_g_;
             // motion of GPS antenna due to rotation at an offset about vehicle center, in body frame
-            Eigen::Vector3d gps_rot_offset = SkewSymmetric(pqr_meas) * gps_offset_;
+            Eigen::Vector3d gps_rot_offset = SkewSymmetric(pqr_est) * gps_offset_;
             // transform to inertial frame
             Eigen::Vector3d gps_rot_offset_I = RotateVectByQuat(q_BtoI, gps_rot_offset);
             // velocity of GPS antenna in inertial frame
@@ -202,6 +212,11 @@ namespace ins_ekf{
             H(m_I(MI::gpsV) - gps_start, s_I(SI::Vx)) = gps_velocity_I[0] / Vxy_norm; // Vx / norm(Vxy)
             H(m_I(MI::gpsV) - gps_start, s_I(SI::Vy)) = gps_velocity_I[1] / Vxy_norm; // Vy / norm(Vxy)
 
+            // derivatives of of GPS antenna rotational motion wrt gyro bias state estimates
+            Eigen::Vector3d d_gps_roI_d_biasGp = RotateVectByQuat(q_BtoI, SkewSymmetric(Eigen::Vector3d{-1.0, 0.0, 0.0})*gps_offset_);
+            Eigen::Vector3d d_gps_roI_d_biasGq = RotateVectByQuat(q_BtoI, SkewSymmetric(Eigen::Vector3d{0.0, -1.0, 0.0})*gps_offset_);
+            Eigen::Vector3d d_gps_roI_d_biasGr = RotateVectByQuat(q_BtoI, SkewSymmetric(Eigen::Vector3d{0.0, 0.0, -1.0})*gps_offset_);
+
             // derivatives of GPS antenna rotational motion wrt angle state estimates
             Eigen::Vector3d d_gps_roI_d_roll = -SkewSymmetric(gps_rot_offset_I) * R_yaw * R_pitch * I_3.col(0); // d gps_rot_offset_I / d roll
             Eigen::Vector3d d_gps_roI_d_pitch = -SkewSymmetric(gps_rot_offset_I) * R_yaw * I_3.col(1); // d gps_rot_offset_I / d pitch
@@ -212,6 +227,11 @@ namespace ins_ekf{
             H(m_I(MI::gpsV) - gps_start, s_I(SI::pitch)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_pitch.segment(0, 2)) / Vxy_norm;
             H(m_I(MI::gpsV) - gps_start, s_I(SI::yaw)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_yaw.segment(0, 2)) / Vxy_norm;
 
+            // derivative of expected GPS velocity measurement wrt gyro bias state estimates
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::biasGp)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_biasGp.segment(0, 2)) / Vxy_norm;
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::biasGq)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_biasGq.segment(0, 2)) / Vxy_norm;
+            H(m_I(MI::gpsV) - gps_start, s_I(SI::biasGr)) = gps_velocity_I.segment(0, 2).dot(d_gps_roI_d_biasGr.segment(0, 2)) / Vxy_norm;
+
             // derivative of expected GPS heading measurement wrt velocity state estimates
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vx)) = -gps_velocity_I[1] / pow(Vxy_norm, 2); // -Vy / norm(Vxy)^2
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::Vy)) = gps_velocity_I[0] / pow(Vxy_norm, 2); // Vx / norm(Vxy)^2
@@ -220,6 +240,11 @@ namespace ins_ekf{
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::roll)) = (gps_velocity_I[0] * d_gps_roI_d_roll[1] - gps_velocity_I[1] * d_gps_roI_d_roll[0]) / pow(Vxy_norm, 2); // (Vx*dVy/droll - Vy*dVx/droll) / norm^2
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::pitch)) = (gps_velocity_I[0] * d_gps_roI_d_pitch[1] - gps_velocity_I[1] * d_gps_roI_d_pitch[0]) / pow(Vxy_norm, 2);
             H(m_I(MI::gpsPsi) - gps_start, s_I(SI::yaw)) = (gps_velocity_I[0] * d_gps_roI_d_yaw[1] - gps_velocity_I[1] * d_gps_roI_d_yaw[0]) / pow(Vxy_norm, 2);
+
+            // derivative of expected GPS heading measurement wrt gyro bias state estimates
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::biasGp)) = (gps_velocity_I[0] * d_gps_roI_d_biasGp[1] - gps_velocity_I[1] * d_gps_roI_d_biasGp[0]) / pow(Vxy_norm, 2);
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::biasGq)) = (gps_velocity_I[0] * d_gps_roI_d_biasGq[1] - gps_velocity_I[1] * d_gps_roI_d_biasGq[0]) / pow(Vxy_norm, 2);
+            H(m_I(MI::gpsPsi) - gps_start, s_I(SI::biasGr)) = (gps_velocity_I[0] * d_gps_roI_d_biasGr[1] - gps_velocity_I[1] * d_gps_roI_d_biasGr[0]) / pow(Vxy_norm, 2);
 
             // EKF update
             const Eigen::Matrix<double, 5, 5> Q_gps_diag = Q_gps_.asDiagonal();
